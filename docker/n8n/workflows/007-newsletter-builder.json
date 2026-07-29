@@ -1,0 +1,81 @@
+{
+  "name": "007 - Newsletter Builder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 6 * * *" }] }
+      },
+      "name": "Daily Trigger (6AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.url, a.title, a.author, a.summary, a.key_points, a.topics, a.final_score, a.image_url, a.published_at, c.name as category, c.icon as category_icon, c.slug as category_slug, s.name as source_name FROM articles a LEFT JOIN categories c ON c.id = a.category_id LEFT JOIN sources s ON s.id = a.source_id WHERE a.status = 'approved' AND a.final_score >= 0.6 AND a.created_at >= NOW() - INTERVAL '24 hours' AND a.id NOT IN (SELECT nsa.article_id FROM newsletter_section_articles nsa JOIN newsletter_sections ns ON ns.id = nsa.section_id JOIN newsletter_issues ni ON ni.id = ns.issue_id WHERE ni.created_at >= NOW() - INTERVAL '48 hours') ORDER BY a.final_score DESC LIMIT 30"
+      },
+      "name": "Get Top Articles",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM sponsors WHERE active = TRUE AND issues_used < issues_booked AND (start_date IS NULL OR start_date <= NOW()) AND (end_date IS NULL OR end_date >= NOW()) ORDER BY rate_per_issue DESC LIMIT 1"
+      },
+      "name": "Get Sponsor",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 460]
+    },
+    {
+      "parameters": {
+        "jsCode": "const articles = $('Get Top Articles').all().map(i => i.json);\nconst sponsor = $('Get Sponsor').first()?.json || null;\nconst fs = require('fs');\n\nlet prompt = fs.readFileSync('/prompts/newsletter.md', 'utf8');\nprompt = prompt\n  .replace('{{date}}', new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }))\n  .replace('{{issue_number}}', 'auto')\n  .replace('{{newsletter_name}}', process.env.NEWSLETTER_NAME || 'Flora News')\n  .replace('{{articles_json}}', JSON.stringify(articles, null, 2))\n  .replace('{{sponsor_json}}', JSON.stringify(sponsor, null, 2));\n\nreturn [{ json: { prompt, articles, sponsor } }];"
+      },
+      "name": "Build Newsletter Prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [700, 360]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "You are the editor of Flora News. Respond with valid JSON only." },
+            { "role": "user", "content": "={{ $json.prompt }}" }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 4000 }
+      },
+      "name": "OpenAI Build Newsletter",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [940, 360]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet newsletter;\ntry { newsletter = JSON.parse(item.choices[0].message.content); } catch(e) { throw new Error('Newsletter JSON parse failed: ' + e.message); }\nreturn [{ json: newsletter }];"
+      },
+      "name": "Parse Newsletter",
+      "type": "n8n-nodes-base.code",
+      "position": [1180, 360]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO newsletter_issues (title, subject_line, preview_text, status, intro_html, outro_html) VALUES ('Flora News — {{ new Date().toLocaleDateString() }}', '{{ $json.subject_lines[0] }}', '{{ $json.preview_text }}', 'building', '{{ $json.intro_html }}', '{{ $json.outro_html }}') RETURNING id, issue_number"
+      },
+      "name": "Create Issue",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1400, 360]
+    }
+  ],
+  "connections": {
+    "Daily Trigger (6AM)": { "main": [[{ "node": "Get Top Articles" }, { "node": "Get Sponsor" }]] },
+    "Get Top Articles": { "main": [[{ "node": "Build Newsletter Prompt" }]] },
+    "Get Sponsor": { "main": [[{ "node": "Build Newsletter Prompt" }]] },
+    "Build Newsletter Prompt": { "main": [[{ "node": "OpenAI Build Newsletter" }]] },
+    "OpenAI Build Newsletter": { "main": [[{ "node": "Parse Newsletter" }]] },
+    "Parse Newsletter": { "main": [[{ "node": "Create Issue" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

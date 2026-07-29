@@ -1,0 +1,28 @@
+# Environment
+.env
+*.env.local
+
+# Docker runtime data
+docker/ghost/ghost-db/
+docker/traefik/.htpasswd
+docker/traefik/acme.json
+
+# Node
+node_modules/
+admin/node_modules/
+
+# Logs
+*.log
+logs/
+
+# Backups
+backups/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

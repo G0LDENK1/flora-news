@@ -1,0 +1,24 @@
+http:
+  middlewares:
+    auth:
+      basicAuth:
+        usersFile: /etc/traefik/.htpasswd
+
+    secure-headers:
+      headers:
+        sslRedirect: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        contentTypeNosniff: true
+        frameDeny: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 200

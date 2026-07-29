@@ -1,0 +1,69 @@
+{
+  "name": "009 - Beehiiv Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 8 * * *" }] }
+      },
+      "name": "Daily Trigger (8AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, issue_number, subject_line, preview_text, full_html FROM newsletter_issues WHERE status = 'scheduled' AND scheduled_for <= NOW() + INTERVAL '5 minutes' ORDER BY scheduled_for ASC LIMIT 1"
+      },
+      "name": "Get Scheduled Issue",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.id }}", "operation": "isNotEmpty" }]
+        }
+      },
+      "name": "Has Issue?",
+      "type": "n8n-nodes-base.if",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.beehiiv.com/v2/publications/{{ $env.BEEHIIV_PUBLICATION_ID }}/posts",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "subject", "value": "={{ $json.subject_line }}" },
+            { "name": "preview_text", "value": "={{ $json.preview_text }}" },
+            { "name": "content", "value": "={{ $json.full_html }}" },
+            { "name": "status", "value": "confirm" },
+            { "name": "send_at", "value": "={{ Math.floor(Date.now() / 1000) + 300 }}" }
+          ]
+        }
+      },
+      "name": "Create Beehiiv Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 240]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE newsletter_issues SET beehiiv_post_id = '{{ $json.data.id }}', beehiiv_url = '{{ $json.data.web_url }}', status = 'sending', updated_at = NOW() WHERE id = '{{ $('Get Scheduled Issue').first().json.id }}'::uuid"
+      },
+      "name": "Save Beehiiv ID",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1140, 240]
+    }
+  ],
+  "connections": {
+    "Daily Trigger (8AM)": { "main": [[{ "node": "Get Scheduled Issue" }]] },
+    "Get Scheduled Issue": { "main": [[{ "node": "Has Issue?" }]] },
+    "Has Issue?": { "main": [[{ "node": "Create Beehiiv Post" }], []] },
+    "Create Beehiiv Post": { "main": [[{ "node": "Save Beehiiv ID" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

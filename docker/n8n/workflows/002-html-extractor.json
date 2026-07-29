@@ -1,0 +1,75 @@
+{
+  "name": "002 - HTML Extractor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, url, title FROM articles WHERE status = 'new' ORDER BY created_at ASC LIMIT 20"
+      },
+      "name": "Get New Articles",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET status = 'extracting' WHERE id = '{{ $json.id }}'::uuid"
+      },
+      "name": "Mark Extracting",
+      "type": "n8n-nodes-base.postgres",
+      "position": [900, 280]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 20000,
+          "headers": { "User-Agent": "Mozilla/5.0 (compatible; FloraNewsBot/1.0)" }
+        }
+      },
+      "name": "Fetch Full HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1120, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract readable text from HTML using regex-based cleaning\nconst html = $input.first().json.data || '';\nconst articleId = $('Get New Articles').first().json.id;\n\n// Remove script/style tags\nlet text = html\n  .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n  .replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, '')\n  .replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, '')\n  .replace(/<header[^>]*>[\\s\\S]*?<\\/header>/gi, '')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst wordCount = text.split(/\\s+/).length;\nconst readingTime = Math.ceil(wordCount / 200);\n\n// Extract og:image\nconst imageMatch = html.match(/<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']/i)\n  || html.match(/<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']og:image[\"']/i);\nconst imageUrl = imageMatch ? imageMatch[1] : null;\n\nreturn [{ json: { article_id: articleId, content: text.slice(0, 50000), word_count: wordCount, reading_time: readingTime, image_url: imageUrl } }];"
+      },
+      "name": "Extract Content",
+      "type": "n8n-nodes-base.code",
+      "position": [1340, 280]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET raw_content = '{{ $json.content }}', raw_html = '', word_count = {{ $json.word_count }}, reading_time = {{ $json.reading_time }}, image_url = COALESCE('{{ $json.image_url }}', image_url), status = 'extracted', updated_at = NOW() WHERE id = '{{ $json.article_id }}'::uuid"
+      },
+      "name": "Save Extracted Content",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1560, 280]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get New Articles" }]] },
+    "Get New Articles": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Mark Extracting" }]] },
+    "Mark Extracting": { "main": [[{ "node": "Fetch Full HTML" }]] },
+    "Fetch Full HTML": { "main": [[{ "node": "Extract Content" }]] },
+    "Extract Content": { "main": [[{ "node": "Save Extracted Content" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

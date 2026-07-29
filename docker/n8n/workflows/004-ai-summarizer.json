@@ -1,0 +1,81 @@
+{
+  "name": "004 - AI Summarizer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.url, a.title, a.author, LEFT(a.raw_content, 8000) as content, s.name as source_name FROM articles a LEFT JOIN sources s ON s.id = a.source_id WHERE a.status = 'summarizing' ORDER BY a.created_at ASC LIMIT 10"
+      },
+      "name": "Get Articles to Summarize",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst item = $input.first().json;\n\nlet prompt = fs.readFileSync('/prompts/summarize.md', 'utf8');\nprompt = prompt\n  .replace('{{title}}', item.title || '')\n  .replace('{{source}}', item.source_name || '')\n  .replace('{{url}}', item.url || '')\n  .replace('{{content}}', (item.content || '').slice(0, 6000));\n\nreturn [{ json: { ...item, prompt } }];"
+      },
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "You are a professional newsletter editor. Always respond with valid JSON only — no markdown, no explanation." },
+            { "role": "user", "content": "={{ $json.prompt }}" }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 800
+        }
+      },
+      "name": "OpenAI Summarize",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst articleId = $('Get Articles to Summarize').first().json.id;\n\nlet result;\ntry {\n  result = JSON.parse(item.choices[0].message.content);\n} catch(e) {\n  return [{ json: { article_id: articleId, error: 'JSON parse failed', raw: item.choices[0].message.content } }];\n}\n\nconst tokensUsed = item.usage?.total_tokens || 0;\nconst costUsd = (tokensUsed / 1000) * 0.00015; // gpt-4o-mini pricing\n\nreturn [{ json: { article_id: articleId, ...result, tokens_used: tokensUsed, cost_usd: costUsd } }];"
+      },
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET summary = '{{ $json.summary }}', key_points = '{{ JSON.stringify($json.key_points) }}'::jsonb, entities = '{{ JSON.stringify($json.entities) }}'::jsonb, topics = ARRAY[{{ $json.topics?.map(t => `'${t}'`).join(',') }}], sentiment = '{{ $json.sentiment }}', quality_score = {{ $json.quality_score || 0 }}, status = 'scored', updated_at = NOW() WHERE id = '{{ $json.article_id }}'::uuid;\n\nINSERT INTO summaries (article_id, model, summary, key_points, tokens_used, cost_usd)\nVALUES ('{{ $json.article_id }}'::uuid, 'gpt-4o-mini', '{{ $json.summary }}', '{{ JSON.stringify($json.key_points) }}'::jsonb, {{ $json.tokens_used }}, {{ $json.cost_usd }});"
+      },
+      "name": "Save Summary",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Articles to Summarize" }]] },
+    "Get Articles to Summarize": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Build Prompt" }]] },
+    "Build Prompt": { "main": [[{ "node": "OpenAI Summarize" }]] },
+    "OpenAI Summarize": { "main": [[{ "node": "Parse AI Response" }]] },
+    "Parse AI Response": { "main": [[{ "node": "Save Summary" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

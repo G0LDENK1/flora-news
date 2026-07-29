@@ -1,0 +1,95 @@
+{
+  "name": "001 - Feed Collector",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 2 }]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, url, last_etag, last_modified FROM feeds WHERE active = TRUE ORDER BY last_fetched ASC NULLS FIRST LIMIT 50"
+      },
+      "name": "Get Active Feeds",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 15000,
+          "headers": {
+            "If-None-Match": "={{ $json.last_etag || '' }}",
+            "If-Modified-Since": "={{ $json.last_modified || '' }}",
+            "User-Agent": "Flora News Feed Collector/1.0"
+          }
+        }
+      },
+      "name": "Fetch Feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst feedId = $('Get Active Feeds').first().json.id;\n\nfor (const item of $input.all()) {\n  const rawXml = item.json.data;\n  // Parse RSS/Atom items - simplified; n8n's XML node handles this\n  items.push({ json: { feed_id: feedId, raw: rawXml } });\n}\nreturn items;"
+      },
+      "name": "Parse Feed Items",
+      "type": "n8n-nodes-base.code",
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (feed_id, source_id, url, title, author, published_at, raw_content, status)\nSELECT\n  '{{ $json.feed_id }}'::uuid,\n  f.source_id,\n  '{{ $json.url }}',\n  '{{ $json.title }}',\n  '{{ $json.author }}',\n  '{{ $json.published_at }}'::timestamptz,\n  '{{ $json.content }}',\n  'new'\nFROM feeds f WHERE f.id = '{{ $json.feed_id }}'::uuid\nON CONFLICT (url) DO NOTHING"
+      },
+      "name": "Upsert Articles",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE feeds SET last_fetched = NOW(), fetch_errors = 0 WHERE id = '{{ $json.feed_id }}'::uuid"
+      },
+      "name": "Update Feed Timestamp",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (workflow_name, status, items_out, finished_at) VALUES ('001-feed-collector', 'success', {{ $json.count }}, NOW())"
+      },
+      "name": "Log Run",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1780, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Active Feeds" }]] },
+    "Get Active Feeds": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Fetch Feed" }]] },
+    "Fetch Feed": { "main": [[{ "node": "Parse Feed Items" }]] },
+    "Parse Feed Items": { "main": [[{ "node": "Upsert Articles" }]] },
+    "Upsert Articles": { "main": [[{ "node": "Update Feed Timestamp" }]] },
+    "Update Feed Timestamp": { "main": [[{ "node": "Log Run" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" },
+  "tags": [{ "name": "feed" }, { "name": "collector" }]
+}

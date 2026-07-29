@@ -1,0 +1,62 @@
+{
+  "name": "012 - Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const error = $input.first().json;\nconst workflowName = error.workflow?.name || 'unknown';\nconst errorMsg = error.execution?.error?.message || 'Unknown error';\nconst nodeType = error.execution?.error?.node?.type || 'unknown';\nconst nodeName = error.execution?.error?.node?.name || 'unknown';\n\nreturn [{\n  json: {\n    workflow_name: workflowName,\n    error_msg: errorMsg,\n    node_type: nodeType,\n    node_name: nodeName,\n    raw: JSON.stringify(error).slice(0, 2000)\n  }\n}];"
+      },
+      "name": "Extract Error Info",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO workflow_logs (workflow_name, status, error_msg, finished_at) VALUES ('{{ $json.workflow_name }}', 'error', '{{ $json.error_msg }}', NOW())"
+      },
+      "name": "Log Error to DB",
+      "type": "n8n-nodes-base.postgres",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.workflow_name }}", "operation": "contains", "value2": "publisher" }]
+        }
+      },
+      "name": "Is Critical?",
+      "type": "n8n-nodes-base.if",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.ADMIN_WEBHOOK_URL || 'http://flora-admin:3001/api/webhook/error' }}",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "workflow", "value": "={{ $json.workflow_name }}" },
+            { "name": "error", "value": "={{ $json.error_msg }}" },
+            { "name": "severity", "value": "critical" }
+          ]
+        }
+      },
+      "name": "Alert Admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1120, 200]
+    }
+  ],
+  "connections": {
+    "Error Trigger": { "main": [[{ "node": "Extract Error Info" }]] },
+    "Extract Error Info": { "main": [[{ "node": "Log Error to DB" }]] },
+    "Log Error to DB": { "main": [[{ "node": "Is Critical?" }]] },
+    "Is Critical?": { "main": [[{ "node": "Alert Admin" }], []] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

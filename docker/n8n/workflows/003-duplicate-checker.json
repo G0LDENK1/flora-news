@@ -1,0 +1,87 @@
+{
+  "name": "003 - Duplicate Checker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 20 }] }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, url, title, raw_content FROM articles WHERE status = 'extracted' AND content_hash IS NULL ORDER BY created_at ASC LIMIT 30"
+      },
+      "name": "Get Extracted Articles",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst item = $input.first().json;\n\n// Create content hash from first 1000 chars of normalized content\nconst normalized = (item.raw_content || item.title || '')\n  .toLowerCase()\n  .replace(/[^a-z0-9\\s]/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, 1000);\n\nconst hash = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);\n\nreturn [{ json: { ...item, content_hash: hash } }];"
+      },
+      "name": "Generate Hash",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM articles WHERE content_hash = '{{ $json.content_hash }}' AND id != '{{ $json.id }}'::uuid AND status != 'rejected' LIMIT 1"
+      },
+      "name": "Check for Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.id }}", "operation": "isNotEmpty" }]
+        }
+      },
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET status = 'rejected', content_hash = '{{ $('Generate Hash').first().json.content_hash }}', duplicate_of = '{{ $json.id }}'::uuid WHERE id = '{{ $('Generate Hash').first().json.id }}'::uuid"
+      },
+      "name": "Mark Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET content_hash = '{{ $('Generate Hash').first().json.content_hash }}', status = 'summarizing' WHERE id = '{{ $('Generate Hash').first().json.id }}'::uuid"
+      },
+      "name": "Mark for Summarization",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1560, 400]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Extracted Articles" }]] },
+    "Get Extracted Articles": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Generate Hash" }]] },
+    "Generate Hash": { "main": [[{ "node": "Check for Duplicate" }]] },
+    "Check for Duplicate": { "main": [[{ "node": "Is Duplicate?" }]] },
+    "Is Duplicate?": {
+      "main": [
+        [{ "node": "Mark Duplicate" }],
+        [{ "node": "Mark for Summarization" }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flora News — Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .sidebar-active { background: rgba(124,58,237,0.15); border-right: 3px solid #7c3aed; }
+    .stat-card { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex">
+
+<!-- Sidebar -->
+<aside class="w-64 bg-gray-900 border-r border-gray-800 flex flex-col min-h-screen fixed left-0 top-0 bottom-0">
+  <div class="p-6 border-b border-gray-800">
+    <h1 class="text-xl font-bold text-purple-400">🌿 Flora News</h1>
+    <p class="text-xs text-gray-500 mt-1">Admin Dashboard</p>
+  </div>
+  <nav class="flex-1 p-4 space-y-1">
+    <a href="#" onclick="showPage('dashboard')" id="nav-dashboard" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer sidebar-active">
+      <span>📊</span> Dashboard
+    </a>
+    <a href="#" onclick="showPage('articles')" id="nav-articles" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>📰</span> Articles
+    </a>
+    <a href="#" onclick="showPage('issues')" id="nav-issues" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>✉️</span> Newsletter Issues
+    </a>
+    <a href="#" onclick="showPage('social')" id="nav-social" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>📱</span> Social Posts
+    </a>
+    <a href="#" onclick="showPage('feeds')" id="nav-feeds" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>📡</span> Feeds
+    </a>
+    <a href="#" onclick="showPage('sponsors')" id="nav-sponsors" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>💰</span> Sponsors
+    </a>
+    <a href="#" onclick="showPage('analytics')" id="nav-analytics" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>📈</span> Analytics
+    </a>
+    <a href="#" onclick="showPage('logs')" id="nav-logs" class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 text-sm cursor-pointer">
+      <span>🔧</span> Workflow Logs
+    </a>
+  </nav>
+  <div class="p-4 border-t border-gray-800">
+    <div id="server-status" class="flex items-center gap-2 text-xs text-gray-500">
+      <span class="w-2 h-2 rounded-full bg-green-500"></span> Connected
+    </div>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<main class="ml-64 flex-1 p-8">
+
+  <!-- Auth Gate -->
+  <div id="auth-gate" class="max-w-sm mx-auto mt-20">
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-8">
+      <h2 class="text-xl font-bold text-purple-400 mb-6 text-center">🌿 Flora Admin</h2>
+      <input type="password" id="token-input" placeholder="Admin token" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm mb-4 focus:outline-none focus:border-purple-500">
+      <button onclick="login()" class="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm font-medium">
+        Login
+      </button>
+      <p id="auth-error" class="text-red-400 text-xs mt-3 text-center hidden">Invalid token</p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="page-dashboard" class="hidden">
+    <div class="mb-8">
+      <h2 class="text-2xl font-bold">Dashboard</h2>
+      <p class="text-gray-400 text-sm mt-1" id="dashboard-date"></p>
+    </div>
+
+    <!-- Stat Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8" id="stat-cards">
+      <div class="stat-card rounded-xl p-5 border border-purple-900">
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Articles Today</p>
+        <p class="text-3xl font-bold text-white mt-1" id="stat-articles-today">—</p>
+      </div>
+      <div class="stat-card rounded-xl p-5 border border-purple-900">
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Queue Pending</p>
+        <p class="text-3xl font-bold text-yellow-400 mt-1" id="stat-queue">—</p>
+      </div>
+      <div class="stat-card rounded-xl p-5 border border-purple-900">
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Avg Open Rate</p>
+        <p class="text-3xl font-bold text-green-400 mt-1" id="stat-open-rate">—</p>
+      </div>
+      <div class="stat-card rounded-xl p-5 border border-purple-900">
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Active Feeds</p>
+        <p class="text-3xl font-bold text-blue-400 mt-1" id="stat-feeds">—</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Recent Issues -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <h3 class="font-semibold mb-4">Recent Issues</h3>
+        <div id="recent-issues" class="space-y-3 text-sm"></div>
+      </div>
+      <!-- Recent Errors -->
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <h3 class="font-semibold mb-4 text-red-400">⚠️ Recent Errors</h3>
+        <div id="recent-errors" class="space-y-2 text-sm"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Articles -->
+  <div id="page-articles" class="hidden">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-2xl font-bold">Articles</h2>
+      <div class="flex gap-3">
+        <select id="article-status-filter" onchange="loadArticles()" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+          <option value="">All Statuses</option>
+          <option value="new">New</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="published">Published</option>
+          <option value="error">Error</option>
+        </select>
+        <input type="search" id="article-search" placeholder="Search..." onkeyup="debounceSearch()" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm w-48">
+      </div>
+    </div>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
+          <tr>
+            <th class="px-4 py-3 text-left">Article</th>
+            <th class="px-4 py-3 text-left">Category</th>
+            <th class="px-4 py-3 text-left">Score</th>
+            <th class="px-4 py-3 text-left">Status</th>
+            <th class="px-4 py-3 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="articles-table" class="divide-y divide-gray-800"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Issues -->
+  <div id="page-issues" class="hidden">
+    <h2 class="text-2xl font-bold mb-6">Newsletter Issues</h2>
+    <div class="space-y-4" id="issues-list"></div>
+  </div>
+
+  <!-- Social -->
+  <div id="page-social" class="hidden">
+    <h2 class="text-2xl font-bold mb-6">Social Posts</h2>
+    <div class="space-y-4" id="social-list"></div>
+  </div>
+
+  <!-- Feeds -->
+  <div id="page-feeds" class="hidden">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-2xl font-bold">Feeds</h2>
+      <button onclick="showAddFeed()" class="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm">+ Add Feed</button>
+    </div>
+    <div id="add-feed-form" class="hidden bg-gray-900 rounded-xl border border-gray-800 p-6 mb-6">
+      <h3 class="font-semibold mb-4">Add RSS Feed</h3>
+      <div class="flex gap-3">
+        <input type="url" id="new-feed-url" placeholder="https://example.com/feed.xml" class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+        <input type="text" id="new-feed-name" placeholder="Source name (optional)" class="w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+        <button onclick="addFeed()" class="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm">Add</button>
+      </div>
+    </div>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
+          <tr>
+            <th class="px-4 py-3 text-left">Feed URL</th>
+            <th class="px-4 py-3 text-left">Source</th>
+            <th class="px-4 py-3 text-left">Last Fetched</th>
+            <th class="px-4 py-3 text-left">Status</th>
+          </tr>
+        </thead>
+        <tbody id="feeds-table" class="divide-y divide-gray-800"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sponsors -->
+  <div id="page-sponsors" class="hidden">
+    <h2 class="text-2xl font-bold mb-6">Sponsors</h2>
+    <div class="space-y-4" id="sponsors-list"></div>
+  </div>
+
+  <!-- Analytics -->
+  <div id="page-analytics" class="hidden">
+    <h2 class="text-2xl font-bold mb-6">Analytics (30 days)</h2>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+      <canvas id="analytics-chart" height="100"></canvas>
+    </div>
+    <div class="mt-6 bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
+          <tr>
+            <th class="px-4 py-3 text-left">Date</th>
+            <th class="px-4 py-3 text-left">Issues</th>
+            <th class="px-4 py-3 text-left">Recipients</th>
+            <th class="px-4 py-3 text-left">Open Rate</th>
+            <th class="px-4 py-3 text-left">Click Rate</th>
+          </tr>
+        </thead>
+        <tbody id="analytics-table" class="divide-y divide-gray-800"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div id="page-logs" class="hidden">
+    <h2 class="text-2xl font-bold mb-6">Workflow Logs</h2>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
+          <tr>
+            <th class="px-4 py-3 text-left">Workflow</th>
+            <th class="px-4 py-3 text-left">Status</th>
+            <th class="px-4 py-3 text-left">Items</th>
+            <th class="px-4 py-3 text-left">Error</th>
+            <th class="px-4 py-3 text-left">Started</th>
+          </tr>
+        </thead>
+        <tbody id="logs-table" class="divide-y divide-gray-800"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+let TOKEN = localStorage.getItem('flora_token') || '';
+const API = '';
+
+function login() {
+  TOKEN = document.getElementById('token-input').value;
+  fetch(`${API}/api/stats`, { headers: { 'x-admin-token': TOKEN } })
+    .then(r => {
+      if (r.ok) {
+        localStorage.setItem('flora_token', TOKEN);
+        document.getElementById('auth-gate').classList.add('hidden');
+        showPage('dashboard');
+      } else {
+        document.getElementById('auth-error').classList.remove('hidden');
+      }
+    });
+}
+
+function api(path) {
+  return fetch(`${API}${path}`, { headers: { 'x-admin-token': TOKEN } }).then(r => r.json());
+}
+
+function apiPost(path, body) {
+  return fetch(`${API}${path}`, {
+    method: 'POST', headers: { 'x-admin-token': TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(r => r.json());
+}
+
+function apiPatch(path, body) {
+  return fetch(`${API}${path}`, {
+    method: 'PATCH', headers: { 'x-admin-token': TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(r => r.json());
+}
+
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+const pages = ['dashboard', 'articles', 'issues', 'social', 'feeds', 'sponsors', 'analytics', 'logs'];
+
+function showPage(page) {
+  pages.forEach(p => {
+    document.getElementById(`page-${p}`).classList.add('hidden');
+    document.getElementById(`nav-${p}`)?.classList.remove('sidebar-active');
+  });
+  document.getElementById(`page-${page}`).classList.remove('hidden');
+  document.getElementById(`nav-${page}`)?.classList.add('sidebar-active');
+
+  const loaders = { dashboard: loadDashboard, articles: loadArticles, issues: loadIssues,
+    social: loadSocial, feeds: loadFeeds, sponsors: loadSponsors, analytics: loadAnalytics, logs: loadLogs };
+  loaders[page]?.();
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+function loadDashboard() {
+  document.getElementById('dashboard-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  api('/api/stats').then(data => {
+    const s = data.stats || {};
+    document.getElementById('stat-articles-today').textContent = s.articles_today ?? '—';
+    document.getElementById('stat-queue').textContent = s.queue_pending ?? '—';
+    document.getElementById('stat-open-rate').textContent = s.avg_open_rate ? `${parseFloat(s.avg_open_rate).toFixed(1)}%` : '—';
+    document.getElementById('stat-feeds').textContent = s.active_feeds ?? '—';
+
+    const issuesEl = document.getElementById('recent-issues');
+    issuesEl.innerHTML = (data.recent_issues || []).map(i => `
+      <div class="flex items-center justify-between p-3 bg-gray-800 rounded-lg">
+        <div>
+          <p class="font-medium">#${i.issue_number} — ${i.subject_line || 'Draft'}</p>
+          <p class="text-gray-400 text-xs">${i.sent_at ? new Date(i.sent_at).toLocaleDateString() : 'Not sent'} • ${i.open_rate ? i.open_rate + '% open' : ''}</p>
+        </div>
+        <span class="text-xs px-2 py-1 rounded-full ${statusBadge(i.status)}">${i.status}</span>
+      </div>`).join('') || '<p class="text-gray-500">No issues yet</p>';
+
+    const errorsEl = document.getElementById('recent-errors');
+    errorsEl.innerHTML = (data.recent_errors || []).map(e => `
+      <div class="p-3 bg-red-950 border border-red-900 rounded-lg">
+        <p class="font-medium text-red-400">${e.workflow_name}</p>
+        <p class="text-gray-400 text-xs">${e.error_msg}</p>
+        <p class="text-gray-600 text-xs">${new Date(e.started_at).toLocaleString()}</p>
+      </div>`).join('') || '<p class="text-gray-500">No errors 🎉</p>';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Articles
+// ---------------------------------------------------------------------------
+let searchTimeout;
+function debounceSearch() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(loadArticles, 400);
+}
+
+function loadArticles() {
+  const status = document.getElementById('article-status-filter').value;
+  const q = document.getElementById('article-search').value;
+  let url = '/api/articles?limit=50';
+  if (status) url += `&status=${status}`;
+  if (q) url += `&q=${encodeURIComponent(q)}`;
+
+  api(url).then(rows => {
+    document.getElementById('articles-table').innerHTML = rows.map(a => `
+      <tr class="hover:bg-gray-800">
+        <td class="px-4 py-3">
+          <p class="font-medium">${escHtml(a.title)}</p>
+          <p class="text-gray-400 text-xs">${a.source_name || ''} • ${a.word_count || 0} words</p>
+        </td>
+        <td class="px-4 py-3 text-gray-300">${a.category_icon || ''} ${a.category || '—'}</td>
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <div class="w-16 bg-gray-700 rounded-full h-1.5">
+              <div class="bg-purple-500 h-1.5 rounded-full" style="width:${((a.final_score||0)*100).toFixed(0)}%"></div>
+            </div>
+            <span class="text-xs">${((a.final_score||0)*100).toFixed(0)}%</span>
+          </div>
+        </td>
+        <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded-full ${statusBadge(a.status)}">${a.status}</span></td>
+        <td class="px-4 py-3">
+          <div class="flex gap-2">
+            ${a.status !== 'approved' ? `<button onclick="setArticleStatus('${a.id}','approved')" class="text-xs text-green-400 hover:text-green-300">✓ Approve</button>` : ''}
+            ${a.status !== 'rejected' ? `<button onclick="setArticleStatus('${a.id}','rejected')" class="text-xs text-red-400 hover:text-red-300 ml-2">✗ Reject</button>` : ''}
+            <a href="${a.url}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300 ml-2">↗ Open</a>
+          </div>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No articles found</td></tr>';
+  });
+}
+
+function setArticleStatus(id, status) {
+  apiPatch(`/api/articles/${id}/status`, { status }).then(() => loadArticles());
+}
+
+// ---------------------------------------------------------------------------
+// Issues
+// ---------------------------------------------------------------------------
+function loadIssues() {
+  api('/api/issues').then(rows => {
+    document.getElementById('issues-list').innerHTML = rows.map(i => `
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-3">
+              <h3 class="font-semibold">Issue #${i.issue_number}</h3>
+              <span class="text-xs px-2 py-1 rounded-full ${statusBadge(i.status)}">${i.status}</span>
+            </div>
+            <p class="text-gray-300 mt-1">${i.subject_line || 'No subject'}</p>
+            <p class="text-gray-500 text-sm mt-1">${i.preview_text || ''}</p>
+          </div>
+          <div class="text-right text-sm">
+            ${i.sent_at ? `<p class="text-gray-400">Sent ${new Date(i.sent_at).toLocaleDateString()}</p>` : ''}
+            ${i.open_rate ? `<p class="text-green-400">${i.open_rate}% open rate</p>` : ''}
+            ${i.recipients ? `<p class="text-gray-400">${i.recipients.toLocaleString()} recipients</p>` : ''}
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          ${i.beehiiv_url ? `<a href="${i.beehiiv_url}" target="_blank" class="text-xs text-purple-400 hover:text-purple-300">↗ Beehiiv</a>` : ''}
+          ${i.ghost_url ? `<a href="${i.ghost_url}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">↗ Ghost</a>` : ''}
+          ${i.status === 'review' ? `<button onclick="scheduleIssue('${i.id}')" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">Schedule</button>` : ''}
+        </div>
+      </div>`).join('') || '<p class="text-gray-500">No issues yet</p>';
+  });
+}
+
+function scheduleIssue(id) {
+  const time = prompt('Schedule send time (ISO format, e.g. 2024-01-15T08:00:00Z):');
+  if (!time) return;
+  apiPatch(`/api/issues/${id}/schedule`, { scheduled_for: time }).then(() => loadIssues());
+}
+
+// ---------------------------------------------------------------------------
+// Social
+// ---------------------------------------------------------------------------
+function loadSocial() {
+  api('/api/social').then(rows => {
+    const icons = { linkedin: '💼', x: '🐦', threads: '🧵' };
+    document.getElementById('social-list').innerHTML = rows.map(p => `
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm font-medium">${icons[p.platform] || '📱'} ${p.platform}</span>
+          <span class="text-xs px-2 py-1 rounded-full ${statusBadge(p.status)}">${p.status}</span>
+        </div>
+        <p class="text-gray-300 text-sm whitespace-pre-wrap">${escHtml(p.content)}</p>
+        ${p.article_title ? `<p class="text-gray-500 text-xs mt-2">Re: ${escHtml(p.article_title)}</p>` : ''}
+        ${p.posted_at ? `<p class="text-gray-600 text-xs mt-1">${new Date(p.posted_at).toLocaleString()}</p>` : ''}
+      </div>`).join('') || '<p class="text-gray-500">No social posts yet</p>';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Feeds
+// ---------------------------------------------------------------------------
+function loadFeeds() {
+  api('/api/feeds').then(rows => {
+    document.getElementById('feeds-table').innerHTML = rows.map(f => `
+      <tr class="hover:bg-gray-800">
+        <td class="px-4 py-3 text-blue-400 text-xs max-w-xs truncate"><a href="${f.url}" target="_blank">${f.url}</a></td>
+        <td class="px-4 py-3 text-gray-300">${f.source_name || f.domain || '—'}</td>
+        <td class="px-4 py-3 text-gray-400 text-xs">${f.last_fetched ? new Date(f.last_fetched).toLocaleString() : 'Never'}</td>
+        <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded-full ${f.active ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-400'}">${f.active ? 'Active' : 'Inactive'}</span></td>
+      </tr>`).join('') || '<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500">No feeds yet</td></tr>';
+  });
+}
+
+function showAddFeed() {
+  document.getElementById('add-feed-form').classList.toggle('hidden');
+}
+
+function addFeed() {
+  const url = document.getElementById('new-feed-url').value;
+  const name = document.getElementById('new-feed-name').value;
+  if (!url) return;
+  apiPost('/api/feeds', { url, source_name: name }).then(() => {
+    document.getElementById('new-feed-url').value = '';
+    document.getElementById('new-feed-name').value = '';
+    loadFeeds();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sponsors
+// ---------------------------------------------------------------------------
+function loadSponsors() {
+  api('/api/sponsors').then(rows => {
+    document.getElementById('sponsors-list').innerHTML = rows.map(s => `
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold">${escHtml(s.name)}</h3>
+            <p class="text-gray-400 text-sm">${s.company || ''}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-green-400 font-semibold">$${parseFloat(s.rate_per_issue||0).toFixed(0)}/issue</p>
+            <p class="text-gray-400 text-xs">${s.issues_used}/${s.issues_booked} issues used</p>
+          </div>
+        </div>
+        ${s.ad_copy ? `<p class="text-gray-300 text-sm mt-3">${escHtml(s.ad_copy)}</p>` : ''}
+      </div>`).join('') || '<p class="text-gray-500 p-4">No sponsors yet</p>';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+let analyticsChart;
+function loadAnalytics() {
+  api('/api/analytics').then(rows => {
+    const labels = rows.map(r => new Date(r.date).toLocaleDateString()).reverse();
+    const openRates = rows.map(r => parseFloat(r.avg_open_rate||0).toFixed(1)).reverse();
+    const clickRates = rows.map(r => parseFloat(r.avg_click_rate||0).toFixed(1)).reverse();
+
+    if (analyticsChart) analyticsChart.destroy();
+    analyticsChart = new Chart(document.getElementById('analytics-chart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Open Rate %', data: openRates, borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.1)', tension: 0.4, fill: true },
+          { label: 'Click Rate %', data: clickRates, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', tension: 0.4, fill: true }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#9ca3af' } } },
+        scales: {
+          x: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+          y: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } }
+        }
+      }
+    });
+
+    document.getElementById('analytics-table').innerHTML = rows.map(r => `
+      <tr class="hover:bg-gray-800">
+        <td class="px-4 py-3">${new Date(r.date).toLocaleDateString()}</td>
+        <td class="px-4 py-3">${r.issues_sent}</td>
+        <td class="px-4 py-3">${parseInt(r.total_recipients||0).toLocaleString()}</td>
+        <td class="px-4 py-3 text-green-400">${parseFloat(r.avg_open_rate||0).toFixed(1)}%</td>
+        <td class="px-4 py-3 text-blue-400">${parseFloat(r.avg_click_rate||0).toFixed(1)}%</td>
+      </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No data yet</td></tr>';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Logs
+// ---------------------------------------------------------------------------
+function loadLogs() {
+  api('/api/logs').then(rows => {
+    document.getElementById('logs-table').innerHTML = rows.map(l => `
+      <tr class="hover:bg-gray-800">
+        <td class="px-4 py-3 font-mono text-xs text-purple-300">${l.workflow_name}</td>
+        <td class="px-4 py-3"><span class="text-xs px-2 py-1 rounded-full ${l.status === 'success' ? 'bg-green-900 text-green-300' : l.status === 'error' ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}">${l.status}</span></td>
+        <td class="px-4 py-3 text-gray-400">${l.items_out || 0}</td>
+        <td class="px-4 py-3 text-red-400 text-xs max-w-xs truncate">${l.error_msg || '—'}</td>
+        <td class="px-4 py-3 text-gray-400 text-xs">${new Date(l.started_at).toLocaleString()}</td>
+      </tr>`).join('') || '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No logs yet</td></tr>';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function statusBadge(status) {
+  const map = {
+    new: 'bg-gray-700 text-gray-300', extracting: 'bg-blue-900 text-blue-300', extracted: 'bg-blue-900 text-blue-300',
+    summarizing: 'bg-yellow-900 text-yellow-300', summarized: 'bg-yellow-900 text-yellow-300',
+    scored: 'bg-orange-900 text-orange-300', approved: 'bg-green-900 text-green-300',
+    rejected: 'bg-red-900 text-red-300', published: 'bg-purple-900 text-purple-300',
+    error: 'bg-red-900 text-red-300', draft: 'bg-gray-700 text-gray-300',
+    building: 'bg-yellow-900 text-yellow-300', review: 'bg-orange-900 text-orange-300',
+    scheduled: 'bg-blue-900 text-blue-300', sending: 'bg-indigo-900 text-indigo-300',
+    sent: 'bg-green-900 text-green-300', posted: 'bg-green-900 text-green-300',
+    success: 'bg-green-900 text-green-300', running: 'bg-blue-900 text-blue-300',
+  };
+  return map[status] || 'bg-gray-700 text-gray-300';
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+if (TOKEN) {
+  fetch(`${API}/api/stats`, { headers: { 'x-admin-token': TOKEN } }).then(r => {
+    if (r.ok) {
+      document.getElementById('auth-gate').classList.add('hidden');
+      showPage('dashboard');
+    }
+  });
+}
+
+document.getElementById('token-input').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+</script>
+</body>
+</html>

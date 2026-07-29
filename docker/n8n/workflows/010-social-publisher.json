@@ -1,0 +1,98 @@
+{
+  "name": "010 - Social Publisher",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] } },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.url, a.title, a.summary, a.key_points, c.name as category, ni.beehiiv_url as newsletter_url FROM articles a LEFT JOIN categories c ON c.id = a.category_id LEFT JOIN newsletter_section_articles nsa ON nsa.article_id = a.id LEFT JOIN newsletter_sections ns ON ns.id = nsa.section_id LEFT JOIN newsletter_issues ni ON ni.id = ns.issue_id WHERE a.status = 'published' AND a.id NOT IN (SELECT article_id FROM social_posts WHERE status IN ('posted', 'scheduled')) AND ni.status IN ('sending', 'sent') ORDER BY a.final_score DESC LIMIT 5"
+      },
+      "name": "Get Articles for Social",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst item = $input.first().json;\n\nconst linkedinPrompt = fs.readFileSync('/prompts/linkedin.md', 'utf8')\n  .replace('{{title}}', item.title).replace('{{summary}}', item.summary)\n  .replace('{{key_points}}', JSON.stringify(item.key_points))\n  .replace('{{category}}', item.category).replace('{{newsletter_url}}', item.newsletter_url || '');\n\nconst tweetPrompt = fs.readFileSync('/prompts/tweet.md', 'utf8')\n  .replace('{{title}}', item.title).replace('{{summary}}', item.summary)\n  .replace('{{key_points}}', JSON.stringify(item.key_points))\n  .replace('{{article_url}}', item.url).replace('{{newsletter_url}}', item.newsletter_url || '');\n\nconst threadsPrompt = fs.readFileSync('/prompts/threads.md', 'utf8')\n  .replace('{{title}}', item.title).replace('{{summary}}', item.summary)\n  .replace('{{article_url}}', item.url).replace('{{newsletter_url}}', item.newsletter_url || '');\n\nreturn [{ json: { ...item, linkedinPrompt, tweetPrompt, threadsPrompt } }];"
+      },
+      "name": "Build Prompts",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "Respond with valid JSON only." },
+            { "role": "user", "content": "={{ $json.linkedinPrompt }}" }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 500 }
+      },
+      "name": "Generate LinkedIn",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "Respond with valid JSON only." },
+            { "role": "user", "content": "={{ $json.tweetPrompt }}" }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 300 }
+      },
+      "name": "Generate Tweet",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [1120, 360]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "Respond with valid JSON only." },
+            { "role": "user", "content": "={{ $json.threadsPrompt }}" }
+          ]
+        },
+        "options": { "temperature": 0.7, "maxTokens": 300 }
+      },
+      "name": "Generate Threads",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [1120, 520]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO social_posts (article_id, platform, content, status, scheduled_for) VALUES\n('{{ $json.article_id }}'::uuid, 'linkedin', '{{ $json.linkedin_content }}', 'scheduled', NOW() + INTERVAL '10 minutes'),\n('{{ $json.article_id }}'::uuid, 'x', '{{ $json.tweet_content }}', 'scheduled', NOW() + INTERVAL '20 minutes'),\n('{{ $json.article_id }}'::uuid, 'threads', '{{ $json.threads_content }}', 'scheduled', NOW() + INTERVAL '30 minutes')"
+      },
+      "name": "Save Social Posts",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1380, 360]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Articles for Social" }]] },
+    "Get Articles for Social": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Build Prompts" }]] },
+    "Build Prompts": { "main": [[{ "node": "Generate LinkedIn" }, { "node": "Generate Tweet" }, { "node": "Generate Threads" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

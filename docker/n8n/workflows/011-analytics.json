@@ -1,0 +1,52 @@
+{
+  "name": "011 - Analytics Sync",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] } },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, beehiiv_post_id FROM newsletter_issues WHERE status IN ('sending', 'sent') AND beehiiv_post_id IS NOT NULL AND sent_at >= NOW() - INTERVAL '7 days'"
+      },
+      "name": "Get Recent Issues",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.beehiiv.com/v2/publications/{{ $env.BEEHIIV_PUBLICATION_ID }}/posts/{{ $json.beehiiv_post_id }}/stats",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth"
+      },
+      "name": "Fetch Beehiiv Stats",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE newsletter_issues SET recipients = {{ $json.data.recipients || 0 }}, opens = {{ $json.data.unique_opened || 0 }}, clicks = {{ $json.data.unique_clicked || 0 }}, open_rate = ROUND({{ ($json.data.unique_opened || 0) / ($json.data.recipients || 1) * 100 }}::numeric, 2), click_rate = ROUND({{ ($json.data.unique_clicked || 0) / ($json.data.recipients || 1) * 100 }}::numeric, 2), status = 'sent', sent_at = COALESCE(sent_at, NOW()), updated_at = NOW() WHERE id = '{{ $('Get Recent Issues').first().json.id }}'::uuid"
+      },
+      "name": "Update Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Recent Issues" }]] },
+    "Get Recent Issues": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Fetch Beehiiv Stats" }]] },
+    "Fetch Beehiiv Stats": { "main": [[{ "node": "Update Analytics" }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

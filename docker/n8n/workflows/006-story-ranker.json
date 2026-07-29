@@ -1,0 +1,76 @@
+{
+  "name": "006 - Story Ranker",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 1 }] } },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT a.id, a.title, a.summary, a.word_count, a.published_at, a.quality_score, c.slug as category, s.name as source_name, s.reliability FROM articles a LEFT JOIN categories c ON c.id = a.category_id LEFT JOIN sources s ON s.id = a.source_id WHERE a.status = 'approved' AND a.final_score = 0 ORDER BY a.created_at ASC LIMIT 20"
+      },
+      "name": "Get Approved Articles",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "name": "Split Into Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst item = $input.first().json;\n\nlet prompt = fs.readFileSync('/prompts/rank.md', 'utf8');\nprompt = prompt\n  .replace('{{title}}', item.title || '')\n  .replace('{{summary}}', item.summary || '')\n  .replace('{{category}}', item.category || '')\n  .replace('{{source}}', item.source_name || '')\n  .replace('{{published_at}}', item.published_at || new Date().toISOString())\n  .replace('{{word_count}}', item.word_count || 0);\n\nreturn [{ json: { ...item, prompt } }];"
+      },
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            { "role": "system", "content": "Respond with valid JSON only." },
+            { "role": "user", "content": "={{ $json.prompt }}" }
+          ]
+        },
+        "options": { "temperature": 0.2, "maxTokens": 300 }
+      },
+      "name": "OpenAI Rank",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst original = $('Get Approved Articles').first().json;\n\nlet scores;\ntry { scores = JSON.parse(item.choices[0].message.content); } catch(e) { scores = { final_score: 0.5, recommendation: 'review' }; }\n\n// Adjust for source reliability\nconst reliabilityBonus = (original.reliability || 0.8) * 0.05;\nscores.final_score = Math.min(1, (scores.final_score || 0.5) + reliabilityBonus);\n\nreturn [{ json: { article_id: original.id, ...scores } }];"
+      },
+      "name": "Apply Scores",
+      "type": "n8n-nodes-base.code",
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE articles SET relevance_score = {{ $json.relevance || 0 }}, novelty_score = {{ $json.novelty || 0 }}, quality_score = GREATEST(quality_score, {{ $json.clarity || 0 }}), final_score = {{ $json.final_score }}, updated_at = NOW() WHERE id = '{{ $json.article_id }}'::uuid"
+      },
+      "name": "Save Scores",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Approved Articles" }]] },
+    "Get Approved Articles": { "main": [[{ "node": "Split Into Batches" }]] },
+    "Split Into Batches": { "main": [[{ "node": "Build Prompt" }]] },
+    "Build Prompt": { "main": [[{ "node": "OpenAI Rank" }]] },
+    "OpenAI Rank": { "main": [[{ "node": "Apply Scores" }]] },
+    "Apply Scores": { "main": [[{ "node": "Save Scores" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}

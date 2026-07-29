@@ -1,0 +1,53 @@
+{
+  "name": "008 - HTML Formatter",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] } },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ni.id, ni.issue_number, ni.intro_html, ni.outro_html, ni.subject_line, ni.sponsor_html FROM newsletter_issues ni WHERE ni.status = 'building' AND ni.full_html IS NULL LIMIT 1"
+      },
+      "name": "Get Building Issues",
+      "type": "n8n-nodes-base.postgres",
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ns.title as section_title, a.id as article_id, a.url, a.title, a.author, a.summary, a.key_points, a.image_url, nsa.blurb, c.name as category, c.icon FROM newsletter_section_articles nsa JOIN newsletter_sections ns ON ns.id = nsa.section_id JOIN articles a ON a.id = nsa.article_id LEFT JOIN categories c ON c.id = a.category_id WHERE ns.issue_id = '{{ $json.id }}'::uuid ORDER BY ns.sort_order, nsa.sort_order"
+      },
+      "name": "Get Section Articles",
+      "type": "n8n-nodes-base.postgres",
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const issue = $('Get Building Issues').first().json;\nconst articles = $input.all().map(i => i.json);\n\n// Build full HTML email\nconst articleHtml = articles.map(a => {\n  const keyPoints = (a.key_points || []).map(p => `<li>${p}</li>`).join('');\n  return `\n  <div style=\"margin-bottom:32px;border-bottom:1px solid #e5e7eb;padding-bottom:24px;\">\n    ${a.image_url ? `<img src=\"${a.image_url}\" alt=\"\" style=\"width:100%;max-height:200px;object-fit:cover;border-radius:8px;margin-bottom:12px;\">` : ''}\n    <span style=\"font-size:12px;color:#6b7280;text-transform:uppercase;\">${a.icon || ''} ${a.category || ''}</span>\n    <h2 style=\"margin:8px 0;font-size:20px;\"><a href=\"${a.url}\" style=\"color:#111827;text-decoration:none;\">${a.title}</a></h2>\n    <p style=\"color:#374151;line-height:1.6;\">${a.blurb || a.summary}</p>\n    ${keyPoints ? `<ul style=\"color:#374151;\">${keyPoints}</ul>` : ''}\n    <a href=\"${a.url}\" style=\"display:inline-block;margin-top:8px;color:#7c3aed;font-weight:600;\">Read → ${a.author ? `<span style=\"color:#9ca3af;font-weight:400;\">via ${a.author}</span>` : ''}</a>\n  </div>`;\n}).join('');\n\nconst fullHtml = `<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Flora News #${issue.issue_number}</title></head>\n<body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#fff;\">\n  <div style=\"text-align:center;padding:20px 0;border-bottom:2px solid #7c3aed;margin-bottom:32px;\">\n    <h1 style=\"color:#7c3aed;margin:0;font-size:28px;\">🌿 Flora News</h1>\n    <p style=\"color:#6b7280;margin:4px 0;\">Issue #${issue.issue_number}</p>\n  </div>\n  ${issue.intro_html || ''}\n  ${issue.sponsor_html ? `<div style=\"background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:16px;margin:24px 0;\"><p style=\"margin:0;font-size:12px;color:#6b7280;\">SPONSOR</p>${issue.sponsor_html}</div>` : ''}\n  ${articleHtml}\n  ${issue.outro_html || ''}\n  <div style=\"text-align:center;padding:20px;border-top:1px solid #e5e7eb;margin-top:32px;\">\n    <p style=\"color:#9ca3af;font-size:12px;\">Flora News • <a href=\"{{unsubscribe}}\" style=\"color:#9ca3af;\">Unsubscribe</a></p>\n  </div>\n</body></html>`;\n\nreturn [{ json: { issue_id: issue.id, full_html: fullHtml, article_count: articles.length } }];"
+      },
+      "name": "Build Full HTML",
+      "type": "n8n-nodes-base.code",
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE newsletter_issues SET full_html = '{{ $json.full_html }}', status = 'review', updated_at = NOW() WHERE id = '{{ $json.issue_id }}'::uuid"
+      },
+      "name": "Save HTML",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1180, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Get Building Issues" }]] },
+    "Get Building Issues": { "main": [[{ "node": "Get Section Articles" }]] },
+    "Get Section Articles": { "main": [[{ "node": "Build Full HTML" }]] },
+    "Build Full HTML": { "main": [[{ "node": "Save HTML" }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "012-error-handler" }
+}
